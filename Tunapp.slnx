@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="Tunapp.csproj" />
+  <Project Path="src/Tunapp.Core/Tunapp.Core.csproj" />
+  <Project Path="src/Tunapp.Presentation/Tunapp.Presentation.csproj" />
+  <Project Path="tests/Tunapp.Checks/Tunapp.Checks.csproj" />
+  <Project Path="tests/Tunapp.MvvmChecks/Tunapp.MvvmChecks.csproj" />
+  <Project Path="tests/Tunapp.DirectChecks/Tunapp.DirectChecks.csproj" />
+</Solution>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Maui.MainTheme" parent="Maui.MainTheme.Base">
+        <item name="bottomNavigationViewStyle">@style/Tunapp.BottomNavigationView</item>
+    </style>
+    <style name="Tunapp.BottomNavigationView" parent="Widget.MaterialComponents.BottomNavigationView">
+        <item name="itemTextAppearanceActive">@style/TextAppearance.MaterialComponents.Caption</item>
+        <item name="itemTextAppearanceInactive">@style/TextAppearance.MaterialComponents.Caption</item>
+    </style>
+</resources>

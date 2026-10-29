@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Shell
+    x:Class="Tunapp.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:local="clr-namespace:Tunapp"
+    Title="Tunapp" Shell.BackgroundColor="#FFFFFF" Shell.ForegroundColor="#193F35" Shell.TitleColor="#193F35" Shell.TabBarBackgroundColor="#FFFFFF" Shell.TabBarTitleColor="#193F35" Shell.TabBarUnselectedColor="#7A8A81">
+
+    <ShellContent Title="Inicio" x:Name="HomeContent" Route="CloudPage" />
+
+</Shell>
+

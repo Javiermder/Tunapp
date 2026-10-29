@@ -1,0 +1,166 @@
+                                           rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signed() { return request.auth != null; }
+    function memberPath(farm, uid) { return /databases/$(database)/documents/farms/$(farm)/members/$(uid); }
+    function farmPath(farm) { return /databases/$(database)/documents/farms/$(farm); }
+    function indexPath(farm, uid) { return /databases/$(database)/documents/users/$(uid)/farms/$(farm); }
+    function member(farm) { return signed() && exists(memberPath(farm, request.auth.uid)); }
+    function role(farm, minimum) { return member(farm) && get(memberPath(farm, request.auth.uid)).data.role >= minimum; }
+    function admin(farm) { return role(farm, 2); }
+    function verifiedEmail(email) {
+      return signed() && request.auth.token.email_verified == true && request.auth.token.email.lower() == email;
+    }
+    function newMeta(d) { return d.createdBy == request.auth.uid && d.createdAt == request.time && d.updatedAt == request.time; }
+    function editMeta(d) { return d.createdBy == resource.data.createdBy && d.createdAt == resource.data.createdAt && d.updatedAt == request.time; }
+    function name(n) { return n is string && n.size() > 0 && n.size() <= 160; }
+    function plotValues(d) {
+      return (d.areaM2 == null || (d.areaM2 is int && d.areaM2 > 0)) && d.trees is int && d.trees >= 0
+        && d.variety is string && d.variety.size() <= 200 && d.notes is string && d.notes.size() <= 10000;
+    }
+    match /users/{uid}/farms/{farm} {
+      allow get: if signed() && (request.auth.uid == uid || admin(farm));
+      allow list: if signed() && request.auth.uid == uid;
+      allow create: if signed() && (request.auth.uid == uid || admin(farm))
+        && request.resource.data.keys().hasOnly(['farmId', 'createdAt'])
+        && request.resource.data.farmId == farm && request.resource.data.createdAt == request.time
+        && existsAfter(memberPath(farm, uid));
+      allow delete: if admin(farm) && !existsAfter(memberPath(farm, uid));
+    }
+    match /farms/{farm} {
+      allow get: if member(farm);
+      allow create: if signed()
+        && request.resource.data.keys().hasOnly(['name','ownerUid','createdBy','createdAt','updatedAt'])
+        && name(request.resource.data.name) && request.resource.data.ownerUid == request.auth.uid
+        && newMeta(request.resource.data)
+        && getAfter(memberPath(farm, request.auth.uid)).data.role == 2
+        && getAfter(indexPath(farm, request.auth.uid)).data.farmId == farm;
+      allow update: if admin(farm)
+        && request.resource.data.keys().hasOnly(['name','ownerUid','createdBy','createdAt','updatedAt'])
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && name(request.resource.data.name) && editMeta(request.resource.data);
+      match /members/{uid} {
+        function validMember(d) {
+          return d.keys().hasOnly(['uid','email','role','createdAt','updatedAt'])
+            && d.uid == uid && d.email is string && d.email.size() <= 320
+            && d.role is int && d.role in [0,1,2] && d.updatedAt == request.time;
+        }
+        function ownBootstrap() {
+          return uid == request.auth.uid && request.resource.data.role == 2
+            && getAfter(farmPath(farm)).data.ownerUid == request.auth.uid;
+        }
+        function acceptedInvitation() {
+          let email = request.auth.token.email.lower();
+          let invitation = get(/databases/$(database)/documents/invitations/$(email)/farms/$(farm)).data;
+          return uid == request.auth.uid && verifiedEmail(email)
+            && request.resource.data.email == email
+            && invitation.farmId == farm && invitation.role == request.resource.data.role
+            && !existsAfter(/databases/$(database)/documents/invitations/$(email)/farms/$(farm));
+        }
+        allow get: if signed() && (request.auth.uid == uid || admin(farm));
+        allow list: if admin(farm);
+        allow create: if signed() && validMember(request.resource.data)
+          && request.resource.data.createdAt == request.time
+          && getAfter(indexPath(farm, uid)).data.farmId == farm
+          && (ownBootstrap() || admin(farm) || acceptedInvitation());
+        allow update: if admin(farm) && validMember(request.resource.data)
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.createdAt == resource.data.createdAt
+          && (uid != get(farmPath(farm)).data.ownerUid || request.resource.data.role == 2);
+        allow delete: if admin(farm) && uid != get(farmPath(farm)).data.ownerUid
+          && !existsAfter(indexPath(farm, uid));
+      }
+      match /campaigns/{campaign} {
+        function valid(d) {
+          return d.keys().hasOnly(['name','start','end','status','createdBy','createdAt','updatedAt'])
+            && name(d.name) && (d.start == null || d.start is timestamp) && (d.end == null || d.end is timestamp) && (d.start == null || d.end == null || d.end >= d.start)
+            && d.status is int && d.status in [0,1];
+        }
+        allow get, list: if member(farm);
+        allow create: if admin(farm) && valid(request.resource.data) && request.resource.data.status == 0 && newMeta(request.resource.data);
+        allow update: if admin(farm) && valid(request.resource.data) && editMeta(request.resource.data);
+      }
+      match /plots/{plot} {
+        function valid(d) {
+          return d.keys().hasOnly(['name','areaM2','trees','variety','notes','createdBy','createdAt','updatedAt'])
+            && name(d.name) && plotValues(d);
+        }
+        allow get, list: if member(farm);
+        allow create: if role(farm,1) && valid(request.resource.data) && newMeta(request.resource.data);
+        allow update: if role(farm,1) && valid(request.resource.data) && editMeta(request.resource.data);
+      }
+      match /campaignPlots/{link} {
+        function valid(d) {
+          return d.keys().hasOnly(['campaignId','plotId','areaM2','trees','variety','notes','createdBy','createdAt','updatedAt'])
+            && d.campaignId is string && d.plotId is string && link == d.campaignId + '_' + d.plotId
+            && plotValues(d)
+            && existsAfter(/databases/$(database)/documents/farms/$(farm)/plots/$(d.plotId))
+            && getAfter(/databases/$(database)/documents/farms/$(farm)/campaigns/$(d.campaignId)).data.status == 0;
+        }
+        allow get, list: if member(farm);
+        allow create: if role(farm,1) && valid(request.resource.data) && newMeta(request.resource.data);
+        allow update: if role(farm,1) && valid(request.resource.data) && editMeta(request.resource.data)
+          && request.resource.data.campaignId == resource.data.campaignId && request.resource.data.plotId == resource.data.plotId;
+      }
+      match /cooperatives/{cooperative} {
+        allow get, list: if member(farm);
+        allow create: if role(farm,1) && newMeta(request.resource.data)
+          && request.resource.data.keys().hasOnly(['name','notes','createdBy','createdAt','updatedAt'])
+          && name(request.resource.data.name) && request.resource.data.notes is string && request.resource.data.notes.size() <= 10000;
+      }
+      match /cooperativePrices/{price} {
+        function valid(d) {
+          return d.keys().hasOnly(['campaignId','cooperativeId','quality','priceTenThousandths','createdBy','createdAt','updatedAt'])
+            && d.campaignId is string && d.cooperativeId is string && d.quality in ['Árbol','Suelo']
+            && price == d.campaignId + '_' + d.cooperativeId + '_' + (d.quality == 'Árbol' ? 'tree' : 'ground')
+            && d.priceTenThousandths is int && d.priceTenThousandths >= 0 && d.priceTenThousandths <= 1000000000000
+            && existsAfter(/databases/$(database)/documents/farms/$(farm)/cooperatives/$(d.cooperativeId))
+            && getAfter(/databases/$(database)/documents/farms/$(farm)/campaigns/$(d.campaignId)).data.status == 0;
+        }
+        allow get, list: if member(farm);
+        allow create: if role(farm,1) && valid(request.resource.data) && newMeta(request.resource.data);
+        allow update: if role(farm,1) && valid(request.resource.data) && editMeta(request.resource.data)
+          && request.resource.data.campaignId == resource.data.campaignId
+          && request.resource.data.cooperativeId == resource.data.cooperativeId && request.resource.data.quality == resource.data.quality;
+      }
+      match /fieldWorks/{work} {
+        function valid(d) {
+          return d.keys().hasOnly(['campaignId','plotId','kind','date','description','quantityMilli','unit','cooperativeId','quality','costCents','notes','createdBy','createdAt','updatedAt'])
+            && d.campaignId is string && d.plotId is string && d.kind is int && d.kind in [0,1]
+            && (!('quality' in d) || (d.kind == 0 && d.quality in ['Árbol','Suelo']))
+            && (!('costCents' in d) || (d.kind == 1 && d.costCents is int && d.costCents >= 0 && d.costCents <= 10000000000))
+            && d.date is timestamp && name(d.description)
+            && d.quantityMilli is int && d.quantityMilli > 0 && d.quantityMilli <= 100000000000
+            && ((d.kind == 0 && d.unit == 'kg') || (d.kind == 1 && d.unit in ['kg','L','g','mL'] && d.cooperativeId == null))
+            && (d.cooperativeId == null || (d.cooperativeId is string && existsAfter(/databases/$(database)/documents/farms/$(farm)/cooperatives/$(d.cooperativeId))))
+            && d.notes is string && d.notes.size() <= 10000
+            && existsAfter(/databases/$(database)/documents/farms/$(farm)/plots/$(d.plotId))
+            && getAfter(/databases/$(database)/documents/farms/$(farm)/campaigns/$(d.campaignId)).data.status == 0;
+        }
+        allow get, list: if member(farm);
+        allow create: if role(farm,1) && valid(request.resource.data) && newMeta(request.resource.data);
+      }
+      match /operations/{operation} {
+        allow get: if member(farm);
+        allow create: if signed() && existsAfter(memberPath(farm, request.auth.uid))
+          && request.resource.data.keys().hasOnly(['uid','target','hash','createdAt'])
+          && request.resource.data.uid == request.auth.uid && request.resource.data.createdAt == request.time
+          && request.resource.data.target is string && request.resource.data.target.size() <= 300
+          && request.resource.data.hash is string && request.resource.data.hash.size() == 64;
+      }
+    }
+    match /invitations/{email}/farms/{farm} {
+      allow get, list: if verifiedEmail(email) || admin(farm);
+      allow create: if admin(farm)
+        && request.resource.data.keys().hasOnly(['farmId','farmName','email','role','createdBy','createdAt'])
+        && request.resource.data.farmId == farm && request.resource.data.email == email
+        && request.resource.data.farmName == get(farmPath(farm)).data.name
+        && request.resource.data.role is int && request.resource.data.role in [0,1,2]
+        && request.resource.data.createdBy == request.auth.uid && request.resource.data.createdAt == request.time;
+      allow delete: if admin(farm) || (verifiedEmail(email)
+        && getAfter(memberPath(farm,request.auth.uid)).data.role == resource.data.role);
+    }
+    // Las rutas de la API anterior y cualquier ruta no descrita permanecen cerradas.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
