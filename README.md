@@ -48,3 +48,21 @@ El proyecto dispone de suites de validación independientes que pueden ejecutars
 ```bash
 dotnet run --project tests/Tunapp.MvvmChecks
 dotnet run --project tests/Tunapp.Checks
+Validación de Reglas de Seguridad en Emulador:
+Bash
+npm --prefix tests/firebase test
+🚀 Compilación y Despliegue
+Requisitos previos:
+.NET SDK 10 o superior con carga de trabajo maui-android instalada.
+
+Android SDK (API 30+).
+
+Compilar APK en depuración:
+Bash
+dotnet build Tunapp.csproj -f net10.0-android -p:EmbedAssembliesIntoApk=true
+👤 Autor
+Javier Martínez
+
+Full Stack Developer | .NET · React · PHP · Laravel
+
+LinkedIn · Manfred
